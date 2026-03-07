@@ -1,0 +1,3 @@
+[templates.dmsspicetify]
+input_path = 'SHELL_DIR/matugen/templates/spicetify-colors.json'
+output_path = 'CONFIG_DIR/spicetify/colors.json'
