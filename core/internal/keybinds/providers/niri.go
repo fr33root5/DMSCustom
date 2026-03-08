@@ -5,12 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/AvengeMedia/DankMaterialShell/core/internal/keybinds"
-	"github.com/sblinch/kdl-go"
 	"github.com/sblinch/kdl-go/document"
 )
 
@@ -234,6 +233,8 @@ func (n *NiriProvider) validateAction(action string) error {
 	return nil
 }
 
+// ---------- SURGICAL SetBind (preserves comments & formatting) ----------
+
 func (n *NiriProvider) SetBind(key, action, description string, options map[string]any) error {
 	if err := n.validateAction(action); err != nil {
 		return err
@@ -245,30 +246,89 @@ func (n *NiriProvider) SetBind(key, action, description string, options map[stri
 		return fmt.Errorf("failed to create dms directory: %w", err)
 	}
 
-	existingBinds, err := n.loadOverrideBinds()
-	if err != nil {
-		existingBinds = make(map[string]*overrideBind)
-	}
-
-	existingBinds[key] = &overrideBind{
+	bind := &overrideBind{
 		Key:         key,
 		Action:      action,
 		Description: description,
 		Options:     options,
 	}
 
-	return n.writeOverrideBinds(existingBinds)
-}
-
-func (n *NiriProvider) RemoveBind(key string) error {
-	existingBinds, err := n.loadOverrideBinds()
+	// Read existing file
+	data, err := os.ReadFile(overridePath)
+	if os.IsNotExist(err) {
+		// Create new file with just this bind
+		content := "binds {\n" + n.formatBindLine(bind, "    ") + "}\n"
+		return n.validateAndWrite(overridePath, content)
+	}
 	if err != nil {
-		return nil
+		return err
 	}
 
-	delete(existingBinds, key)
-	return n.writeOverrideBinds(existingBinds)
+	lines := strings.Split(string(data), "\n")
+
+	// Try to find and replace existing bind in-place
+	idx := n.findBindLine(lines, key)
+	if idx >= 0 {
+		// Preserve the original indentation
+		indent := n.getLineIndent(lines[idx])
+		lines[idx] = strings.TrimRight(n.formatBindLine(bind, indent), "\n")
+		return n.validateAndWrite(overridePath, strings.Join(lines, "\n"))
+	}
+
+	// New bind: insert before the closing brace of the correct block
+	if n.isRecentWindowsAction(action) {
+		insertIdx := n.findBlockClosing(lines, "recent-windows")
+		if insertIdx < 0 {
+			// No recent-windows block — append one at the end
+			result := strings.TrimRight(string(data), "\n") + "\n\n"
+			result += "recent-windows {\n"
+			result += "    binds {\n"
+			result += n.formatBindLine(bind, "        ")
+			result += "    }\n"
+			result += "}\n"
+			return n.validateAndWrite(overridePath, result)
+		}
+		newLine := strings.TrimRight(n.formatBindLine(bind, "        "), "\n")
+		lines = insertBeforeIndex(lines, insertIdx, newLine)
+	} else {
+		insertIdx := n.findBlockClosing(lines, "binds")
+		if insertIdx < 0 {
+			return fmt.Errorf("could not find binds block in %s", overridePath)
+		}
+		newLine := strings.TrimRight(n.formatBindLine(bind, "    "), "\n")
+		lines = insertBeforeIndex(lines, insertIdx, newLine)
+	}
+
+	return n.validateAndWrite(overridePath, strings.Join(lines, "\n"))
 }
+
+// ---------- SURGICAL RemoveBind (preserves comments & formatting) ----------
+
+func (n *NiriProvider) RemoveBind(key string) error {
+	overridePath := n.GetOverridePath()
+
+	data, err := os.ReadFile(overridePath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+
+	idx := n.findBindLine(lines, key)
+	if idx < 0 {
+		return nil // not found, nothing to do
+	}
+
+	// Remove the line
+	lines = append(lines[:idx], lines[idx+1:]...)
+
+	return n.validateAndWrite(overridePath, strings.Join(lines, "\n"))
+}
+
+// ---------- HELPERS ----------
 
 type overrideBind struct {
 	Key         string
@@ -277,109 +337,86 @@ type overrideBind struct {
 	Options     map[string]any
 }
 
-func (n *NiriProvider) loadOverrideBinds() (map[string]*overrideBind, error) {
-	overridePath := n.GetOverridePath()
-	binds := make(map[string]*overrideBind)
+// formatBindLine generates a single KDL bind line with the given indentation.
+func (n *NiriProvider) formatBindLine(bind *overrideBind, indent string) string {
+	var sb strings.Builder
+	n.writeBindNode(&sb, bind, indent)
+	return sb.String()
+}
 
-	data, err := os.ReadFile(overridePath)
-	if os.IsNotExist(err) {
-		return binds, nil
+// findBindLine returns the line index containing the given key combo, or -1.
+func (n *NiriProvider) findBindLine(lines []string, key string) int {
+	pattern := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(key) + `[\s{]`)
+	for i, line := range lines {
+		if pattern.MatchString(line) {
+			return i
+		}
 	}
-	if err != nil {
-		return nil, err
+	return -1
+}
+
+// getLineIndent returns the leading whitespace of a line.
+func (n *NiriProvider) getLineIndent(line string) string {
+	return line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+}
+
+// findBlockClosing finds the closing } of a named top-level block.
+// For "recent-windows", returns the inner binds {} closing brace.
+func (n *NiriProvider) findBlockClosing(lines []string, blockName string) int {
+	inBlock := false
+	depth := 0
+	targetDepth := 1
+	if blockName == "recent-windows" {
+		targetDepth = 2
 	}
 
-	parser := NewNiriParser(filepath.Dir(overridePath))
-	parser.currentSource = overridePath
+	blockPattern := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(blockName) + `\s*\{`)
 
-	doc, err := kdl.Parse(strings.NewReader(string(data)))
-	if err != nil {
-		return nil, err
-	}
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
 
-	for _, node := range doc.Nodes {
-		if node.Name.String() != "binds" || node.Children == nil {
+		if !inBlock && blockPattern.MatchString(line) {
+			inBlock = true
+			depth = 1
 			continue
 		}
-		for _, child := range node.Children {
-			kb := parser.parseKeybindNode(child, "")
-			if kb == nil {
-				continue
-			}
-			keyStr := parser.formatBindKey(kb)
 
-			action := n.buildActionFromNode(child)
-			if action == "" {
-				action = n.formatRawAction(kb.Action, kb.Args)
-			}
+		if !inBlock {
+			continue
+		}
 
-			binds[keyStr] = &overrideBind{
-				Key:         keyStr,
-				Action:      action,
-				Description: kb.Description,
-				Options:     n.extractOptions(child),
+		for _, ch := range trimmed {
+			if ch == '{' {
+				depth++
+			} else if ch == '}' {
+				if depth == targetDepth {
+					return i
+				}
+				depth--
+				if depth <= 0 {
+					return -1
+				}
 			}
 		}
 	}
-
-	return binds, nil
+	return -1
 }
 
-func (n *NiriProvider) buildActionFromNode(bindNode *document.Node) string {
-	if len(bindNode.Children) == 0 {
-		return ""
+// validateAndWrite validates the KDL content with niri and writes it.
+func (n *NiriProvider) validateAndWrite(path, content string) error {
+	if err := n.validateBindsContent(content); err != nil {
+		return err
 	}
-
-	actionNode := bindNode.Children[0]
-	actionName := actionNode.Name.String()
-	if actionName == "" {
-		return ""
-	}
-
-	parts := []string{actionName}
-	for _, arg := range actionNode.Arguments {
-		val := arg.ValueString()
-		if val == "" {
-			parts = append(parts, `""`)
-		} else if strings.ContainsAny(val, " \t") {
-			parts = append(parts, `"`+strings.ReplaceAll(val, `"`, `\"`)+`"`)
-		} else {
-			parts = append(parts, val)
-		}
-	}
-
-	if actionNode.Properties != nil {
-		for _, propName := range []string{"focus", "show-pointer", "write-to-disk", "skip-confirmation", "delay-ms"} {
-			if val, ok := actionNode.Properties.Get(propName); ok {
-				parts = append(parts, propName+"="+val.String())
-			}
-		}
-	}
-
-	return strings.Join(parts, " ")
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-func (n *NiriProvider) extractOptions(node *document.Node) map[string]any {
-	if node.Properties == nil {
-		return make(map[string]any)
-	}
-
-	opts := make(map[string]any)
-	if val, ok := node.Properties.Get("repeat"); ok {
-		opts["repeat"] = val.String() == "true"
-	}
-	if val, ok := node.Properties.Get("cooldown-ms"); ok {
-		if ms, err := strconv.Atoi(val.String()); err == nil {
-			opts["cooldown-ms"] = ms
-		}
-	}
-	if val, ok := node.Properties.Get("allow-when-locked"); ok {
-		opts["allow-when-locked"] = val.String() == "true"
-	}
-	if val, ok := node.Properties.Get("allow-inhibiting"); ok {
-		opts["allow-inhibiting"] = val.String() == "true"
-	}
-	return opts
+// insertBeforeIndex inserts a new element before the given index.
+func insertBeforeIndex(lines []string, idx int, newLine string) []string {
+	result := make([]string, 0, len(lines)+1)
+	result = append(result, lines[:idx]...)
+	result = append(result, newLine)
+	result = append(result, lines[idx:]...)
+	return result
 }
 
 func (n *NiriProvider) isRecentWindowsAction(action string) bool {
@@ -390,6 +427,8 @@ func (n *NiriProvider) isRecentWindowsAction(action string) bool {
 		return false
 	}
 }
+
+// ---------- KEPT: Line generation helpers ----------
 
 func (n *NiriProvider) buildBindNode(bind *overrideBind) *document.Node {
 	node := document.NewNode()
@@ -485,88 +524,6 @@ func (n *NiriProvider) parseActionParts(action string) []string {
 		parts = append(parts, current.String())
 	}
 	return parts
-}
-
-func (n *NiriProvider) writeOverrideBinds(binds map[string]*overrideBind) error {
-	overridePath := n.GetOverridePath()
-	content := n.generateBindsContent(binds)
-
-	if err := n.validateBindsContent(content); err != nil {
-		return err
-	}
-
-	return os.WriteFile(overridePath, []byte(content), 0o644)
-}
-
-func (n *NiriProvider) getBindSortPriority(action string) int {
-	switch {
-	case strings.HasPrefix(action, "spawn") && strings.Contains(action, "dms"):
-		return 0
-	case strings.Contains(action, "workspace"):
-		return 1
-	case strings.Contains(action, "window") || strings.Contains(action, "column") ||
-		strings.Contains(action, "focus") || strings.Contains(action, "move") ||
-		strings.Contains(action, "swap") || strings.Contains(action, "resize"):
-		return 2
-	case strings.HasPrefix(action, "focus-monitor") || strings.Contains(action, "monitor"):
-		return 3
-	case strings.Contains(action, "screenshot"):
-		return 4
-	case action == "quit" || action == "power-off-monitors" || strings.Contains(action, "dpms"):
-		return 5
-	case strings.HasPrefix(action, "spawn"):
-		return 6
-	default:
-		return 7
-	}
-}
-
-func (n *NiriProvider) generateBindsContent(binds map[string]*overrideBind) string {
-	if len(binds) == 0 {
-		return "binds {}\n"
-	}
-
-	var regularBinds, recentWindowsBinds []*overrideBind
-	for _, bind := range binds {
-		switch {
-		case n.isRecentWindowsAction(bind.Action):
-			recentWindowsBinds = append(recentWindowsBinds, bind)
-		default:
-			regularBinds = append(regularBinds, bind)
-		}
-	}
-
-	sort.Slice(regularBinds, func(i, j int) bool {
-		pi, pj := n.getBindSortPriority(regularBinds[i].Action), n.getBindSortPriority(regularBinds[j].Action)
-		if pi != pj {
-			return pi < pj
-		}
-		return regularBinds[i].Key < regularBinds[j].Key
-	})
-
-	sort.Slice(recentWindowsBinds, func(i, j int) bool {
-		return recentWindowsBinds[i].Key < recentWindowsBinds[j].Key
-	})
-
-	var sb strings.Builder
-
-	sb.WriteString("binds {\n")
-	for _, bind := range regularBinds {
-		n.writeBindNode(&sb, bind, "    ")
-	}
-	sb.WriteString("}\n")
-
-	if len(recentWindowsBinds) > 0 {
-		sb.WriteString("\nrecent-windows {\n")
-		sb.WriteString("    binds {\n")
-		for _, bind := range recentWindowsBinds {
-			n.writeBindNode(&sb, bind, "        ")
-		}
-		sb.WriteString("    }\n")
-		sb.WriteString("}\n")
-	}
-
-	return sb.String()
 }
 
 func (n *NiriProvider) writeBindNode(sb *strings.Builder, bind *overrideBind, indent string) {
