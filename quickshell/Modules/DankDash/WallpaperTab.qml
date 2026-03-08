@@ -346,6 +346,21 @@ Item {
             width: parent.width
             height: parent.height - 50
 
+            WheelHandler {
+                target: null
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: event => {
+                    if (event.angleDelta.y > 0 && currentPage > 0) {
+                        gridIndex = 0;
+                        currentPage--;
+                    } else if (event.angleDelta.y < 0 && currentPage < totalPages - 1) {
+                        gridIndex = 0;
+                        currentPage++;
+                    }
+                    event.accepted = true;
+                }
+            }
+
             GridView {
                 id: wallpaperGrid
                 anchors.centerIn: parent
@@ -355,7 +370,7 @@ Item {
                 cellHeight: height / 4
                 clip: true
                 enabled: root.active
-                interactive: root.active
+                interactive: false
                 boundsBehavior: Flickable.StopAtBounds
                 keyNavigationEnabled: false
                 activeFocusOnTab: false
