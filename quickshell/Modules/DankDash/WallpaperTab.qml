@@ -346,16 +346,29 @@ Item {
             width: parent.width
             height: parent.height - 50
 
+            Timer {
+                id: wheelCooldown
+                interval: 400
+                running: false
+                repeat: false
+            }
+
             WheelHandler {
                 target: null
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 onWheel: event => {
+                    if (wheelCooldown.running) {
+                        event.accepted = true;
+                        return;
+                    }
                     if (event.angleDelta.y > 0 && currentPage > 0) {
                         gridIndex = 0;
                         currentPage--;
+                        wheelCooldown.restart();
                     } else if (event.angleDelta.y < 0 && currentPage < totalPages - 1) {
                         gridIndex = 0;
                         currentPage++;
+                        wheelCooldown.restart();
                     }
                     event.accepted = true;
                 }
