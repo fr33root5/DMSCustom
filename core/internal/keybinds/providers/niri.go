@@ -275,7 +275,7 @@ func (n *NiriProvider) SetBind(key, action, description string, options map[stri
 		return n.validateAndWrite(overridePath, strings.Join(lines, "\n"))
 	}
 
-	// New bind: insert before the closing brace of the correct block
+	// New bind: insert into GUI BINDS section
 	if n.isRecentWindowsAction(action) {
 		insertIdx := n.findBlockClosing(lines, "recent-windows")
 		if insertIdx < 0 {
@@ -295,8 +295,35 @@ func (n *NiriProvider) SetBind(key, action, description string, options map[stri
 		if insertIdx < 0 {
 			return fmt.Errorf("could not find binds block in %s", overridePath)
 		}
-		newLine := strings.TrimRight(n.formatBindLine(bind, "    "), "\n")
-		lines = insertBeforeIndex(lines, insertIdx, newLine)
+
+		// Check if GUI BINDS section header exists
+		guiSectionExists := false
+		for _, line := range lines {
+			if strings.Contains(line, "GUI BINDS") {
+				guiSectionExists = true
+				break
+			}
+		}
+
+		if !guiSectionExists {
+			// Create the GUI BINDS section header before the closing brace
+			header := []string{
+				"",
+				"    // ===========================",
+				"    // GUI BINDS",
+				"    // ===========================",
+				"",
+			}
+			newLine := strings.TrimRight(n.formatBindLine(bind, "    "), "\n")
+			header = append(header, newLine)
+			for i := len(header) - 1; i >= 0; i-- {
+				lines = insertBeforeIndex(lines, insertIdx, header[i])
+			}
+		} else {
+			// Insert before closing brace (after existing GUI binds)
+			newLine := strings.TrimRight(n.formatBindLine(bind, "    "), "\n")
+			lines = insertBeforeIndex(lines, insertIdx, newLine)
+		}
 	}
 
 	return n.validateAndWrite(overridePath, strings.Join(lines, "\n"))
