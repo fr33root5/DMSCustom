@@ -164,7 +164,7 @@ Variants {
 
             Component.onCompleted: {
                 if (typeof wallpaperWindow.updatesEnabled !== "undefined")
-                    wallpaperWindow.updatesEnabled = Qt.binding(() => root.effectActive || root._renderSettling || currentWallpaper.status === Image.Loading || nextWallpaper.status === Image.Loading);
+                    wallpaperWindow.updatesEnabled = Qt.binding(() => root.effectActive || root._renderSettling || currentWallpaper.status === Image.Loading || nextWallpaper.status === Image.Loading || (CompositorService.isNiri && SettingsData.blurWallpaperOnOverview && NiriService.inOverview));
 
                 if (!source) {
                     root._renderSettling = false;
