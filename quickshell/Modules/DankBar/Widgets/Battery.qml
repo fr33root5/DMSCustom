@@ -56,7 +56,7 @@ BasePill {
                             return Theme.primary;
                         }
 
-                        return Theme.widgetIconColor;
+                        return Theme.primary;
                     }
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
@@ -92,7 +92,7 @@ BasePill {
                             return Theme.primary;
                         }
 
-                        return Theme.widgetIconColor;
+                        return Theme.primary;
                     }
                     anchors.verticalCenter: parent.verticalCenter
                 }
