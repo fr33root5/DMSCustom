@@ -536,7 +536,7 @@ BasePill {
                 }
 
                 Rectangle {
-                    width: audioIcon.implicitWidth + (root.showAudioPercent ? audioPercent.implicitWidth : 0) + 4
+                    width: audioIcon.implicitWidth + (root.showAudioPercent ? audioPercent.implicitWidth + 4 : 0)
                     height: root.widgetThickness - root.horizontalPadding * 2
                     color: "transparent"
                     anchors.verticalCenter: parent.verticalCenter
