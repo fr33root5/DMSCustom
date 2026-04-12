@@ -385,7 +385,7 @@ BasePill {
                         id: audioIconV
                         name: root.getVolumeIconName()
                         size: root.vIconSize
-                        color: Theme.widgetIconColor
+                        color: (AudioService.sink?.audio?.muted || AudioService.sink?.audio?.volume === 0) ? Theme.surfaceText : Theme.primary
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.top: parent.top
                     }
@@ -546,7 +546,7 @@ BasePill {
                         id: audioIcon
                         name: root.getVolumeIconName()
                         size: Theme.barIconSize(root.barThickness, -4, root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
-                        color: Theme.widgetIconColor
+                        color: (AudioService.sink?.audio?.muted || AudioService.sink?.audio?.volume === 0) ? Theme.surfaceText : Theme.primary
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
                         anchors.leftMargin: 2
