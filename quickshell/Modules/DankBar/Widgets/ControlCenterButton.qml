@@ -384,7 +384,7 @@ BasePill {
                     DankIcon {
                         id: audioIconV
                         name: root.getVolumeIconName()
-                        size: Theme.barIconSize(root.barThickness, 0, root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
+                        size: root.vIconSize
                         color: (AudioService.sink?.audio?.muted || AudioService.sink?.audio?.volume === 0) ? Theme.surfaceText : Theme.primary
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.top: parent.top
@@ -545,7 +545,7 @@ BasePill {
                     DankIcon {
                         id: audioIcon
                         name: root.getVolumeIconName()
-                        size: Theme.barIconSize(root.barThickness, 0, root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
+                        size: Theme.barIconSize(root.barThickness, -4, root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
                         color: (AudioService.sink?.audio?.muted || AudioService.sink?.audio?.volume === 0) ? Theme.surfaceText : Theme.primary
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
