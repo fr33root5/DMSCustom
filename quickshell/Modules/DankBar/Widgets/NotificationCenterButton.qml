@@ -19,7 +19,7 @@ BasePill {
                 anchors.centerIn: parent
                 name: SessionData.doNotDisturb ? "notifications_off" : "notifications"
                 size: Theme.barIconSize(root.barThickness, -4, root.barConfig?.maximizeWidgetIcons, root.barConfig?.iconScale)
-                color: SessionData.doNotDisturb ? Theme.primary : (root.isActive ? Theme.primary : Theme.widgetIconColor)
+                color: SessionData.doNotDisturb ? Theme.surfaceText : Theme.primary
             }
 
             Rectangle {
